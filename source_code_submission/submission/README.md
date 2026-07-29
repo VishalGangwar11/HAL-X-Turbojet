@@ -72,7 +72,7 @@ which is the data file consumed by the interactive dashboard
 
 ## Live Dashboard
 
-https://vishalgangwar11.github.io/turbojet-digital-twin/
+https://vishalgangwar11.github.io/HAL-X-Turbojet/
 
 ## Key Results Summary
 

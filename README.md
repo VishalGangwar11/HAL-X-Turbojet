@@ -2,7 +2,7 @@
 
 **HAL × IIT Indore Aerothon 2026** — Physics-Informed Digital Twin for Real-Time Four-Stage Turbojet Health Monitoring
 
-🔗 **[Live Dashboard](https://vishalgangwar11.github.io/turbojet-digital-twin/)**
+🔗 **[Live Dashboard](https://vishalgangwar11.github.io/HAL-X-Turbojet/)**
 
 ## Overview
 
