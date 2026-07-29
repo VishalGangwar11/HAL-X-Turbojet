@@ -178,6 +178,7 @@
           <div class="stat"><div class="num" id="statHealthIdx">--</div><div class="cap">UNIFIED HEALTH INDEX</div></div>
           <div class="stat"><div class="num" id="statCyclesLeft">--</div><div class="cap">EST. CYCLES TO THRESHOLD (0.60)</div></div>
           <div class="stat"><div class="num" id="statConfidence">--</div><div class="cap">MODEL CONFIDENCE (1σ, avg)</div></div>
+          <div class="stat"><div class="num" id="statModelAccuracy">--</div><div class="cap">MODEL ACCURACY</div></div>
         </div>
       </div>
       <div class="rul-tape" id="rulTape">-- CYC</div>
@@ -221,12 +222,29 @@ function loadEngineList(){
   renderEngine(engines[0]);
 }
 
-// Auto-load embedded data on page open - no upload needed
+// Auto-load generated dashboard CSV when served, fallback to embedded sample data
 window.addEventListener('DOMContentLoaded', function(){
-  if(typeof EMBEDDED_DATA !== 'undefined' && EMBEDDED_DATA.length > 0){
-    rawData = EMBEDDED_DATA;
-    loadEngineList();
-  }
+  const csvPath = 'ukf_results_corrected.csv';
+  fetch(csvPath)
+    .then(resp => {
+      if(!resp.ok) throw new Error('CSV not found');
+      return resp.text();
+    })
+    .then(text => {
+      const results = Papa.parse(text, {header:true, dynamicTyping:true, skipEmptyLines:true});
+      if(results.data && results.data.length){
+        rawData = results.data;
+        loadEngineList();
+      } else {
+        throw new Error('Empty CSV data');
+      }
+    })
+    .catch(() => {
+      if(typeof EMBEDDED_DATA !== 'undefined' && EMBEDDED_DATA.length > 0){
+        rawData = EMBEDDED_DATA;
+        loadEngineList();
+      }
+    });
 });
 
 document.getElementById('engineSelect').addEventListener('change', function(e){
@@ -366,6 +384,10 @@ function renderEngine(engId){
 
   const avgStd = (stdC.reduce((a,b)=>a+b,0)/stdC.length);
   document.getElementById('statConfidence').textContent = '±' + avgStd.toFixed(4);
+
+  const mse = eng.reduce((sum,r)=>sum + Math.pow((r.CompressorHealth - r.est_eta_c_corrected),2),0)/eng.length;
+  const accuracy = Math.max(0, 100 - Math.sqrt(mse)*100);
+  document.getElementById('statModelAccuracy').textContent = accuracy.toFixed(2) + '%';
 }
 </script>
 

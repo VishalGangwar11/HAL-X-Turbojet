@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!-- <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -370,4 +370,431 @@ function renderEngine(engId){
 </script>
 
 </body>
+</html> -->
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Turbojet Digital Twin — Health Monitor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0B0E14;
+    --panel-top: #1E2A38;
+    --panel-bottom: #121820;
+    --panel-line: #2A3B4C;
+    --amber: #FFB020;
+    --cyan: #4FD1E8;
+    --mint: #5EEAAB;
+    --red: #E85C4A;
+    --text: #E2E8F0;
+    --muted: #788B9E;
+  }
+  
+  * { box-sizing: border-box; }
+  
+  body {
+    margin: 0; 
+    background-color: var(--bg); 
+    background-image: radial-gradient(circle at 50% 0%, #152230 0%, var(--bg) 60%);
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    min-height: 100vh;
+  }
+  
+  .label {
+    font-family: 'Barlow Condensed', sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  
+  header {
+    padding: 20px 28px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(11, 14, 20, 0.8);
+    backdrop-filter: blur(10px);
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 12px;
+    position: sticky; top: 0; z-index: 100;
+  }
+  
+  header h1 {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700; font-size: 22px; letter-spacing: 0.02em;
+    margin: 0; color: var(--text);
+    text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+  }
+  
+  header h1 span { color: var(--amber); }
+  
+  .controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  
+  select, .upload-btn {
+    background: rgba(20, 28, 38, 0.8); border: 1px solid var(--panel-line); color: var(--text);
+    font-family: 'IBM Plex Mono', monospace; font-size: 13px;
+    padding: 8px 12px; border-radius: 4px; cursor: pointer;
+    transition: all 0.2s;
+  }
+  
+  .upload-btn { color: var(--amber); border-color: rgba(255, 176, 32, 0.5); font-weight: 600; }
+  .upload-btn:hover { background: rgba(255,176,32,0.1); box-shadow: 0 0 10px rgba(255,176,32,0.2); }
+  select:focus { outline: none; border-color: var(--cyan); }
+  #fileInput { display: none; }
+
+  #empty-state {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 70vh; gap: 16px; text-align: center;
+  }
+  #empty-state .icon { font-size: 40px; color: var(--panel-line); }
+  #empty-state p { color: var(--muted); font-size: 14px; max-width: 340px; line-height: 1.6; }
+
+  main { padding: 22px 28px 40px; display: none; max-width: 1600px; margin: 0 auto; position: relative; }
+  
+  /* Background technical grid and trace lines */
+  .grid-container {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+    margin-bottom: 18px;
+    position: relative;
+    z-index: 10;
+  }
+
+  /* SVG Circuit Lines behind top panels */
+  #circuit-lines {
+    position: absolute;
+    top: 50%;
+    left: 10%;
+    width: 80%;
+    height: 100%;
+    z-index: 0;
+    pointer-events: none;
+    transform: translateY(-50%);
+  }
+
+  .panel {
+    background: linear-gradient(180deg, var(--panel-top) 0%, var(--panel-bottom) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    padding: 16px 18px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    position: relative;
+    z-index: 2;
+    overflow: hidden;
+  }
+
+  /* Blueprint/Schematic overlay for the large chart panel */
+  .blueprint-bg {
+    position: absolute;
+    right: -5%;
+    top: -20%;
+    width: 60%;
+    height: 140%;
+    background-image: 
+      radial-gradient(circle at center, rgba(79, 209, 232, 0.05) 0%, transparent 70%),
+      repeating-linear-gradient(0deg, transparent, transparent 19px, rgba(255,255,255,0.02) 20px),
+      repeating-linear-gradient(90deg, transparent, transparent 19px, rgba(255,255,255,0.02) 20px);
+    opacity: 0.6;
+    pointer-events: none;
+    z-index: 0;
+    border-radius: 50%;
+    transform: rotate(-10deg);
+  }
+
+  .panel-title {
+    font-family: 'Barlow Condensed', sans-serif; font-size: 14px; font-weight: 600;
+    letter-spacing: 0.1em; text-transform: uppercase; color: #A4B5C6;
+    margin: 0 0 10px; display: flex; justify-content: space-between; align-items: center;
+    position: relative; z-index: 2;
+  }
+  
+  .gauge-wrap { display: flex; flex-direction: column; align-items: center; position: relative; }
+  .gauge-value {
+    font-size: 30px; font-weight: 700; margin-top: -50px; text-shadow: 0 0 15px rgba(0,0,0,0.8);
+    position: relative; z-index: 10;
+  }
+  .gauge-sub { font-size: 11px; color: var(--muted); margin-top: 12px; font-weight: 500; position: relative; z-index: 10;}
+  
+  .wide { grid-column: span 3; }
+  canvas { max-height: 280px; position: relative; z-index: 1; }
+
+  footer { padding: 14px 28px; color: var(--muted); font-size: 11px; border-top: 1px solid rgba(255,255,255,0.05); text-align: center;}
+</style>
+
+<!-- Using exactly the embedded data you provided -->
+<script>const EMBEDDED_DATA = [{"EngineID": 1.0, "Cycle": 1.0, "est_eta_c": 0.9787902869087808, "est_eta_c_corrected": 1.0095843893093122, "CompressorHealth": 0.9972206939489918, "est_eta_comb": 1.0038174879525232, "est_eta_comb_corrected": 1.0038174879525232, "CombustorHealth": 0.999261760970851, "est_eta_t": 0.9951972371580822, "est_eta_t_corrected": 0.9896132146535568, "TurbineHealth": 0.998727385402894, "var_eta_c": 0.005073079111787, "var_eta_comb": 0.0036286337308133, "var_eta_t": 0.0054981718288954, "true_Thrust": 21227.13610946445, "pred_Thrust_corrected": 19154.569220958547, "true_TSFC": 0.0143472251900702, "pred_TSFC_corrected": 0.01575270106582451, "true_OverallHealth": 0.9982850214917204, "unified_health_index_corrected": 0.9824835571240051}, {"EngineID": 1.0, "Cycle": 2.0, "est_eta_c": 0.9407246003658152, "est_eta_c_corrected": 0.9904636066163341, "CompressorHealth": 0.9931565457646512, "est_eta_comb": 0.9994620754331558, "est_eta_comb_corrected": 0.9994620754331558, "CombustorHealth": 0.9981822422870998, "est_eta_t": 0.9994452642052792, "est_eta_t_corrected": 0.9919225738716604, "TurbineHealth": 0.9968664552968636, "var_eta_c": 0.0035502129283121, "var_eta_comb": 0.0036131068634927, "var_eta_t": 0.0059344004261212, "true_Thrust": 39800.42238362171, "pred_Thrust_corrected": 39780.97321220388, "true_TSFC": 0.0140554490224518, "pred_TSFC_corrected": 0.014195552848308517, "true_OverallHealth": 0.9957772275810496, "unified_health_index_corrected": 0.9686848071872605}, {"EngineID": 1.0, "Cycle": 3.0, "est_eta_c": 0.925542636396365, "est_eta_c_corrected": 0.9898170258745748, "CompressorHealth": 0.9884070488970544, "est_eta_comb": 0.9911420778502849, "est_eta_comb_corrected": 0.9911420778502849, "CombustorHealth": 0.9969206813462996, "est_eta_t": 0.9998698856018644, "est_eta_t_corrected": 0.9923471952682456, "TurbineHealth": 0.9946917113385936, "var_eta_c": 0.0030998627148349, "var_eta_comb": 0.0029466110273541, "var_eta_t": 0.0063726399993369, "true_Thrust": 47814.86380566101, "pred_Thrust_corrected": 42693.194615522734, "true_TSFC": 0.0159172248205971, "pred_TSFC_corrected": 0.017544477734779507, "true_OverallHealth": 0.9928465373642896, "unified_health_index_corrected": 0.9554693919041983}, {"EngineID": 1.0, "Cycle": 4.0, "est_eta_c": 0.9027679325524808, "est_eta_c_corrected": 0.9795453203532426, "CompressorHealth": 0.9831494391003376, "est_eta_comb": 0.9941072026953218, "est_eta_comb_corrected": 0.9941072026953218, "CombustorHealth": 0.9955241554938968, "est_eta_t": 0.9754523501441068, "est_eta_t_corrected": 0.9799088010947744, "TurbineHealth": 0.9922843078895336, "var_eta_c": 0.0025062297748494, "var_eta_comb": 0.0021439187156497, "var_eta_t": 0.0064653800074094, "true_Thrust": 84197.57388853369, "pred_Thrust_corrected": 68250.77794757861, "true_TSFC": 0.0188846365910612, "pred_TSFC_corrected": 0.02315178066293587, "true_OverallHealth": 0.989602314655164, "unified_health_index_corrected": 0.953325823707584}, {"EngineID": 1.0, "Cycle": 5.0, "est_eta_c": 0.8944345867092167, "est_eta_c_corrected": 0.9712119745099785, "CompressorHealth": 0.9774784965710276, "est_eta_comb": 0.99774781226491, "est_eta_comb_corrected": 0.99774781226491, "CombustorHealth": 0.9940178402373674, "est_eta_t": 0.9789511680859458, "est_eta_t_corrected": 0.9786427085101809, "TurbineHealth": 0.989687643790763, "var_eta_c": 0.0021580093257828, "var_eta_comb": 0.002751876176927, "var_eta_t": 0.0069427479540558, "true_Thrust": 26132.28852114377, "pred_Thrust_corrected": 30338.615494116548, "true_TSFC": 0.0158910553261703, "pred_TSFC_corrected": 0.013561842964165198, "true_OverallHealth": 0.98610304383685, "unified_health_index_corrected": 0.9427705028520939}, {"EngineID": 1.0, "Cycle": 7.0, "est_eta_c": 0.871849632445598, "est_eta_c_corrected": 0.9663615106555734, "CompressorHealth": 0.9651210160628512, "est_eta_comb": 1.0003651676889436, "est_eta_comb_corrected": 1.0003651676889436, "CombustorHealth": 0.990735447350202, "est_eta_t": 0.9861011104995012, "est_eta_t_corrected": 0.9750479978433036, "TurbineHealth": 0.9840292852690542, "var_eta_c": 0.0016804053077414, "var_eta_comb": 0.0036623401680742, "var_eta_t": 0.0073922263055136, "true_Thrust": 18331.69268269888, "pred_Thrust_corrected": 28191.68659207759, "true_TSFC": 0.0115927011561081, "pred_TSFC_corrected": 0.007525655900667707, "true_OverallHealth": 0.9784778262109172, "unified_health_index_corrected": 0.9201627770559557}, {"EngineID": 1.0, "Cycle": 9.0, "est_eta_c": 0.868149964277527, "est_eta_c_corrected": 0.9586982579858129, "CompressorHealth": 0.9516438590033875, "est_eta_comb": 0.972313826357535, "est_eta_comb_corrected": 0.972313826357535, "CombustorHealth": 0.9871556460758304, "est_eta_t": 0.97831461001205, "est_eta_t_corrected": 0.9632275135297835, "TurbineHealth": 0.977858238796809, "var_eta_c": 0.0015759890311234, "var_eta_comb": 0.0019632299092065, "var_eta_t": 0.0076700740686224, "true_Thrust": 62977.01032021104, "pred_Thrust_corrected": 56653.12058899616, "true_TSFC": 0.0212832186309653, "pred_TSFC_corrected": 0.02386563443356195, "true_OverallHealth": 0.9701617090631468, "unified_health_index_corrected": 0.8661948425359235}, {"EngineID": 1.0, "Cycle": 11.0, "est_eta_c": 0.8560217639048983, "est_eta_c_corrected": 0.9346958142575897, "CompressorHealth": 0.9372307609617008, "est_eta_comb": 0.9694454311535516, "est_eta_comb_corrected": 0.9694454311535516, "CombustorHealth": 0.9833272402399686, "est_eta_t": 0.9642555582906298, "est_eta_t_corrected": 0.9586323964865241, "TurbineHealth": 0.9712586349314062, "var_eta_c": 0.001414236905083, "var_eta_comb": 0.0019188778627995, "var_eta_t": 0.0078521527860862, "true_Thrust": 61851.203305542025, "pred_Thrust_corrected": 60589.25237094787, "true_TSFC": 0.0219180370086065, "pred_TSFC_corrected": 0.022671031519524314, "true_OverallHealth": 0.9612680669360928, "unified_health_index_corrected": 0.8377880649812384}, {"EngineID": 1.0, "Cycle": 12.0, "est_eta_c": 0.8561498817588413, "est_eta_c_corrected": 0.9348239321115328, "CompressorHealth": 0.9297134878340814, "est_eta_comb": 0.9678477191393074, "est_eta_comb_corrected": 0.9678477191393074, "CombustorHealth": 0.9813305028120884, "est_eta_t": 0.9678718854118564, "est_eta_t_corrected": 0.9473842037098646, "TurbineHealth": 0.9678165557443474, "var_eta_c": 0.0013502965247121, "var_eta_comb": 0.002694406021253, "var_eta_t": 0.0083179378327696, "true_Thrust": 26767.53778290408, "pred_Thrust_corrected": 29889.517563429024, "true_TSFC": 0.0137709558899359, "pred_TSFC_corrected": 0.012398914780860514, "true_OverallHealth": 0.9566295127005632, "unified_health_index_corrected": 0.7755002665624113}, {"EngineID": 1.0, "Cycle": 13.0, "est_eta_c": 0.8635915808970488, "est_eta_c_corrected": 0.9235840471773178, "CompressorHealth": 0.9220057240061724, "est_eta_comb": 1.025629030131073, "est_eta_comb_corrected": 1.025629030131073, "CombustorHealth": 0.9792831672611289, "est_eta_t": 0.961914472957659, "est_eta_t_corrected": 0.9443692726854548, "TurbineHealth": 0.9642872528973706, "var_eta_c": 0.0013749898817377, "var_eta_comb": 0.0011763031661079, "var_eta_t": 0.0086884955636518, "true_Thrust": 56261.27598894188, "pred_Thrust_corrected": 52600.14344904571, "true_TSFC": 0.0336434860134931, "pred_TSFC_corrected": 0.03586205631254659, "true_OverallHealth": 0.9518734156500188, "unified_health_index_corrected": 0.7116050767940085}, {"EngineID": 1.0, "Cycle": 14.0, "est_eta_c": 0.8575082188701479, "est_eta_c_corrected": 0.9201914162673203, "CompressorHealth": 0.914117867565264, "est_eta_comb": 1.023480734071918, "est_eta_comb_corrected": 1.023480734071918, "CombustorHealth": 0.9771879955261228, "est_eta_t": 0.9770834581736232, "est_eta_t_corrected": 0.947671719929343, "TurbineHealth": 0.9606754875637415, "var_eta_c": 0.0011176538516116, "var_eta_comb": 0.002113532995857, "var_eta_t": 0.0089397179063197, "true_Thrust": 33739.20339489765, "pred_Thrust_corrected": 40339.429359040114, "true_TSFC": 0.0134013604925278, "pred_TSFC_corrected": 0.011363571212835192, "true_OverallHealth": 0.9470061919530648, "unified_health_index_corrected": 0.7322407727256002}, {"EngineID": 1.0, "Cycle": 15.0, "est_eta_c": 0.8487313351513746, "est_eta_c_corrected": 0.910112661822709, "CompressorHealth": 0.9060590365993728, "est_eta_comb": 0.9959990496628116, "est_eta_comb_corrected": 0.9959990496628116, "CombustorHealth": 0.9750474095528082, "est_eta_t": 0.9749712991130416, "est_eta_t_corrected": 0.9424847740915775, "TurbineHealth": 0.9569854348187108, "var_eta_c": 0.0010720376764361, "var_eta_comb": 0.0017467157023555, "var_eta_t": 0.0090259254741158, "true_Thrust": 61613.94545118576, "pred_Thrust_corrected": 60117.30680706124, "true_TSFC": 0.0237533949229622, "pred_TSFC_corrected": 0.024136369222130825, "true_OverallHealth": 0.9420334679512048, "unified_health_index_corrected": 0.7242572171619789}, {"EngineID": 1.0, "Cycle": 16.0, "est_eta_c": 0.850580164633868, "est_eta_c_corrected": 0.9095079979994798, "CompressorHealth": 0.8978373027575564, "est_eta_comb": 0.9810669668363732, "est_eta_comb_corrected": 0.9810669668363732, "CombustorHealth": 0.9728635533318992, "est_eta_t": 0.979550497716968, "est_eta_t_corrected": 0.9447881500496154, "TurbineHealth": 0.9532207905842908, "var_eta_c": 0.0010556492719228, "var_eta_comb": 0.0023447648430559, "var_eta_t": 0.0094905534158373, "true_Thrust": 24665.57575731505, "pred_Thrust_corrected": 28717.92343450474, "true_TSFC": 0.0173808601506595, "pred_TSFC_corrected": 0.0152034600633538, "true_OverallHealth": 0.9369602242778796, "unified_health_index_corrected": 0.7482382785193253}, {"EngineID": 1.0, "Cycle": 17.0, "est_eta_c": 0.8503175994202151, "est_eta_c_corrected": 0.9051155666276539, "CompressorHealth": 0.889459870063442, "est_eta_comb": 0.9856409938113272, "est_eta_comb_corrected": 0.9856409938113272, "CombustorHealth": 0.9706383403955184, "est_eta_t": 0.980171136081792, "est_eta_t_corrected": 0.9237876969859253, "TurbineHealth": 0.9493848535060636, "var_eta_c": 0.0011494050671631, "var_eta_comb": 0.002687080396452, "var_eta_t": 0.009982432296363, "true_Thrust": 15880.286211804105, "pred_Thrust_corrected": 15758.466396104925, "true_TSFC": 0.0154676896166544, "pred_TSFC_corrected": 0.015335959513100895, "true_OverallHealth": 0.9317909061958514, "unified_health_index_corrected": 0.6217532356630366}, {"EngineID": 1.0, "Cycle": 19.0, "est_eta_c": 0.8415018774130213, "est_eta_c_corrected": 0.8846942805381973, "CompressorHealth": 0.8722631935386119, "est_eta_comb": 0.9531304808612396, "est_eta_comb_corrected": 0.9531304808612396, "CombustorHealth": 0.966070560687459, "est_eta_t": 0.9754925068290964, "est_eta_t_corrected": 0.9177654137771541, "TurbineHealth": 0.9415106787424492, "var_eta_c": 0.0010808653090138, "var_eta_comb": 0.0020816935361902, "var_eta_t": 0.0098179838734533, "true_Thrust": 67450.58943078473, "pred_Thrust_corrected": 62078.06701662632, "true_TSFC": 0.0205431642422636, "pred_TSFC_corrected": 0.022606894813058588, "true_OverallHealth": 0.9211796492444172, "unified_health_index_corrected": 0.6060538844886003}, {"EngineID": 1.0, "Cycle": 20.0, "est_eta_c": 0.8418281635151883, "est_eta_c_corrected": 0.8731862354255759, "CompressorHealth": 0.8634551365999437, "est_eta_comb": 0.9629319299771738, "est_eta_comb_corrected": 0.9629319299771738, "CombustorHealth": 0.9637309653770636, "est_eta_t": 0.977229881896299, "est_eta_t_corrected": 0.903491420227397, "TurbineHealth": 0.9374775634156128, "var_eta_c": 0.001178023241213, "var_eta_comb": 0.0021171540998551, "var_eta_t": 0.0102833441588488, "true_Thrust": 21253.830055406583, "pred_Thrust_corrected": 19394.114724809508, "true_TSFC": 0.0179450198616012, "pred_TSFC_corrected": 0.01959587084869518, "true_OverallHealth": 0.9157446132777805, "unified_health_index_corrected": 0.5145925735885444}, {"EngineID": 1.0, "Cycle": 21.0, "est_eta_c": 0.8270769745860413, "est_eta_c_corrected": 0.8550558841344662, "CompressorHealth": 0.8545139153864967, "est_eta_comb": 0.9799123115050982, "est_eta_comb_corrected": 0.9799123115050982, "CombustorHealth": 0.961355998983698, "est_eta_t": 0.9471774543500484, "est_eta_t_corrected": 0.9036528770644542, "TurbineHealth": 0.9333834735876648, "var_eta_c": 0.0010392960114875, "var_eta_comb": 0.0016347818994988, "var_eta_t": 0.0096931575857155, "true_Thrust": 77870.45582531953, "pred_Thrust_corrected": 74316.59612243943, "true_TSFC": 0.0254642050644895, "pred_TSFC_corrected": 0.026564645287518965, "true_OverallHealth": 0.9102274079260076, "unified_health_index_corrected": 0.5006684303335401}, {"EngineID": 1.0, "Cycle": 22.0, "est_eta_c": 0.8320283662385459, "est_eta_c_corrected": 0.8482366307634559, "CompressorHealth": 0.8454440040561729, "est_eta_comb": 1.0653273065787032, "est_eta_comb_corrected": 1.0653273065787032, "CombustorHealth": 0.9589468499327908, "est_eta_t": 0.9685071718485428, "est_eta_t_corrected": 0.8909914963410717, "TurbineHealth": 0.929230457927788, "var_eta_c": 0.0011344119831899, "var_eta_comb": 0.0010911442460075, "var_eta_t": 0.010086634237671, "true_Thrust": 47988.030090582, "pred_Thrust_corrected": 44483.02198023737, "true_TSFC": 0.0381279988801574, "pred_TSFC_corrected": 0.04094849938496209, "true_OverallHealth": 0.9046307939806428, "unified_health_index_corrected": 0.34794198613739213}, {"EngineID": 1.0, "Cycle": 23.0, "est_eta_c": 0.8342272883806174, "est_eta_c_corrected": 0.8414554597599955, "CompressorHealth": 0.8362495282691685, "est_eta_comb": 1.0464280297697923, "est_eta_comb_corrected": 1.0464280297697923, "CombustorHealth": 0.9565046140818416, "est_eta_t": 0.988321510240984, "est_eta_t_corrected": 0.8930697843845401, "TurbineHealth": 0.9250204055317824, "var_eta_c": 0.0010389435533211, "var_eta_comb": 0.001903919034159, "var_eta_t": 0.0100979339164835, "true_Thrust": 50496.11403732675, "pred_Thrust_corrected": 51938.92688587039, "true_TSFC": 0.0164695251990873, "pred_TSFC_corrected": 0.01615172933016417, "true_OverallHealth": 0.8989573171917545, "unified_health_index_corrected": 0.3779271408723327}, {"EngineID": 1.0, "Cycle": 24.0, "est_eta_c": 0.8335098943042019, "est_eta_c_corrected": 0.8292056919948245, "CompressorHealth": 0.8269343064268596, "est_eta_comb": 1.0411533103097872, "est_eta_comb_corrected": 1.0411533103097872, "CombustorHealth": 0.9540303056742876, "est_eta_t": 0.9930085315532524, "est_eta_t_corrected": 0.8745264732557463, "TurbineHealth": 0.9207550648049116, "var_eta_c": 0.0010880140475294, "var_eta_comb": 0.0027973152451529, "var_eta_t": 0.0105699109337163, "true_Thrust": 22118.03630366932, "pred_Thrust_corrected": 23064.56339591503, "true_TSFC": 0.0099663712254954, "pred_TSFC_corrected": 0.009565863675461235, "true_OverallHealth": 0.8932093337145037, "unified_health_index_corrected": 0.2720335207261787}, {"EngineID": 1.0, "Cycle": 27.0, "est_eta_c": 0.8099938801671513, "est_eta_c_corrected": 0.7890892128156425, "CompressorHealth": 0.798298435720123, "est_eta_comb": 0.9692920468356978, "est_eta_comb_corrected": 0.9692920468356978, "CombustorHealth": 0.9464240482123896, "est_eta_t": 0.9810826975862302, "est_eta_t_corrected": 0.8683677590592992, "TurbineHealth": 0.9076430050340868, "var_eta_c": 0.0009711238057265, "var_eta_comb": 0.0018609053375651, "var_eta_t": 0.0099512311029536, "true_Thrust": 68726.46658425753, "pred_Thrust_corrected": 70316.85344152409, "true_TSFC": 0.0248665725653864, "pred_TSFC_corrected": 0.02437763767397687, "true_OverallHealth": 0.8755394902619921, "unified_health_index_corrected": 0.2915679247018971}, {"EngineID": 1.0, "Cycle": 28.0, "est_eta_c": 0.8153899005522, "est_eta_c_corrected": 0.7968775383631386, "CompressorHealth": 0.7885333848936531, "est_eta_comb": 0.9515287947105612, "est_eta_comb_corrected": 0.9515287947105612, "CombustorHealth": 0.9438302562695736, "est_eta_t": 0.9815346065307984, "est_eta_t_corrected": 0.8541368230963934, "TurbineHealth": 0.9031716924131754, "var_eta_c": 0.0010070264652991, "var_eta_comb": 0.0024491184482674, "var_eta_t": 0.0104155166115611, "true_Thrust": 24947.42869797411, "pred_Thrust_corrected": 27343.789450129076, "true_TSFC": 0.0162102343634385, "pred_TSFC_corrected": 0.014960158778168817, "true_OverallHealth": 0.8695139385622859, "unified_health_index_corrected": 0.22246315030720842}, {"EngineID": 1.0, "Cycle": 29.0, "est_eta_c": 0.8167944068522417, "est_eta_c_corrected": 0.7883111902556108, "CompressorHealth": 0.778663126903856, "est_eta_comb": 0.975161968872552, "est_eta_comb_corrected": 0.975161968872552, "CombustorHealth": 0.9412085192092754, "est_eta_t": 0.984378390698879, "est_eta_t_corrected": 0.8544600748535842, "TurbineHealth": 0.8986522065543, "var_eta_c": 0.0011026393399912, "var_eta_comb": 0.0013522820906354, "var_eta_t": 0.0108570019307915, "true_Thrust": 30342.20798086236, "pred_Thrust_corrected": 27147.650639438983, "true_TSFC": 0.0273894901246489, "pred_TSFC_corrected": 0.029947949127253053, "true_OverallHealth": 0.863423468490615, "unified_health_index_corrected": 0.20522001844001037}, {"EngineID": 1.0, "Cycle": 30.0, "est_eta_c": 0.8140767246768148, "est_eta_c_corrected": 0.7825853279919465, "CompressorHealth": 0.7686902154501571, "est_eta_comb": 0.958545774795313, "est_eta_comb_corrected": 0.958545774795313, "CombustorHealth": 0.9385595153449124, "est_eta_t": 1.0010840943882595, "est_eta_t_corrected": 0.862147084093213, "TurbineHealth": 0.89408571676919, "var_eta_c": 0.0009576947563765, "var_eta_comb": 0.0019871104435414, "var_eta_t": 0.0105160256425547, "true_Thrust": 59176.20473376656, "pred_Thrust_corrected": 58557.60688500499, "true_TSFC": 0.0183640125972302, "pred_TSFC_corrected": 0.0186485109971589, "true_OverallHealth": 0.8572696558142936, "unified_health_index_corrected": 0.2623074033308199}];</script>
+
+<!-- Rest of the logic remains unchanged -->
+<script>
+let rawData = [];
+let engines = [];
+let charts = {};
+
+// Colors matching the image exactly
+const COLORS = {
+  amber: '#FFA000', 
+  cyan: '#00E5FF', 
+  green: '#00E676', 
+  red: '#FF1744'
+};
+
+Chart.defaults.font.family = "'IBM Plex Mono', monospace";
+Chart.defaults.color = '#788B9E';
+Chart.defaults.borderColor = 'rgba(255,255,255,0.05)';
+
+document.getElementById('fileInput').addEventListener('change', function(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  Papa.parse(file, {
+    header:true, dynamicTyping:true, skipEmptyLines:true,
+    complete: function(results){
+      rawData = results.data;
+      loadEngineList();
+    }
+  });
+});
+
+function loadEngineList(){
+  engines = [...new Set(rawData.map(r=>r.EngineID))].sort((a,b)=>a-b);
+  const sel = document.getElementById('engineSelect');
+  sel.innerHTML = engines.map(id=>`<option value="${id}">Engine ${id}</option>`).join('');
+  sel.disabled = false;
+  document.getElementById('empty-state').style.display='none';
+  document.getElementById('dashboard').style.display='block';
+  
+  // Inject circuit SVG lines
+  injectCircuitLines();
+
+  renderEngine(engines[0]);
+}
+
+window.addEventListener('DOMContentLoaded', function(){
+  if(typeof EMBEDDED_DATA !== 'undefined' && EMBEDDED_DATA.length > 0){
+    rawData = EMBEDDED_DATA;
+    loadEngineList();
+  }
+});
+
+document.getElementById('engineSelect').addEventListener('change', function(e){
+  renderEngine(parseInt(e.target.value));
+});
+
+// Draws the SVG background connection lines
+function injectCircuitLines() {
+    if(!document.getElementById('circuit-lines')) {
+        const grid = document.querySelector('.grid');
+        const svgHTML = `
+        <svg id="circuit-lines" viewBox="0 0 1000 150" preserveAspectRatio="none">
+            <path d="M 150,75 L 300,75 L 320,100 L 480,100" fill="none" stroke="rgba(255, 176, 32, 0.4)" stroke-width="2" />
+            <circle cx="150" cy="75" r="4" fill="rgba(255, 176, 32, 0.8)"/>
+            <circle cx="480" cy="100" r="4" fill="rgba(255, 176, 32, 0.8)"/>
+            
+            <path d="M 520,100 L 680,100 L 700,75 L 850,75" fill="none" stroke="rgba(79, 209, 232, 0.4)" stroke-width="2" />
+            <circle cx="520" cy="100" r="4" fill="rgba(79, 209, 232, 0.8)"/>
+            <circle cx="850" cy="75" r="4" fill="rgba(79, 209, 232, 0.8)"/>
+        </svg>`;
+        grid.insertAdjacentHTML('afterbegin', svgHTML);
+    }
+}
+
+// Draw realistic 3D-looking gauges with glow
+function drawGauge(canvasId, value, overrideColor = null){
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  
+  const cx = w/2, cy = h - 20, radius = 60;
+  const startAngle = Math.PI, endAngle = 2*Math.PI;
+
+  // Outer Glassy/Metallic Rim
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius + 22, startAngle, endAngle);
+  const rimGrad = ctx.createLinearGradient(0, cy - radius - 20, 0, cy);
+  rimGrad.addColorStop(0, 'rgba(255,255,255,0.25)');
+  rimGrad.addColorStop(1, 'rgba(255,255,255,0.02)');
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = rimGrad;
+  ctx.stroke();
+
+  // Outer shadow background
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius + 15, startAngle, endAngle);
+  ctx.lineWidth = 14;
+  ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+  ctx.stroke();
+
+  // Inner track
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, startAngle, endAngle);
+  ctx.lineWidth = 16;
+  ctx.strokeStyle = '#10171F';
+  ctx.stroke();
+
+  // Ticks
+  for(let i = 0; i <= 10; i++){
+    const a = startAngle + (i/10)*(endAngle-startAngle);
+    const x1 = cx + Math.cos(a)*(radius+10), y1 = cy + Math.sin(a)*(radius+10);
+    const x2 = cx + Math.cos(a)*(radius+16), y2 = cy + Math.sin(a)*(radius+16);
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 2; ctx.stroke();
+  }
+
+  // Determine Value Color
+  const clamped = Math.max(0, Math.min(1, value));
+  const valAngle = startAngle + clamped*(endAngle-startAngle);
+  let color = overrideColor || (clamped > 0.9 ? COLORS.cyan : clamped > 0.75 ? COLORS.amber : COLORS.red);
+
+  // Glowing Arc
+  ctx.shadowBlur = 18;
+  ctx.shadowColor = color;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, startAngle, valAngle);
+  ctx.lineWidth = 16; 
+  ctx.strokeStyle = color; 
+  ctx.lineCap = 'round';
+  ctx.stroke();
+  
+  // Reset shadow
+  ctx.shadowBlur = 0;
+
+  // Needle/Pointer
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(cx + Math.cos(valAngle)*(radius-22), cy + Math.sin(valAngle)*(radius-22));
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx,cy,5,0,2*Math.PI); ctx.fillStyle = '#fff'; ctx.fill();
+
+  return color;
+}
+
+function destroyChart(key){ if(charts[key]) { charts[key].destroy(); delete charts[key]; } }
+
+function renderEngine(engId){
+  const eng = rawData.filter(r=>r.EngineID===engId).sort((a,b)=>a.Cycle-b.Cycle);
+  const last = eng[eng.length-1];
+
+  document.getElementById('cycleLabel').textContent = `CYCLE ${last.Cycle} / ${eng[eng.length-1].Cycle}`;
+
+  // Gauge configurations matching the target visual: Amber, Cyan, Amber
+  const gc = drawGauge('gaugeCompressor', last.est_eta_c_corrected, COLORS.amber);
+  document.getElementById('valCompressor').textContent = last.est_eta_c_corrected.toFixed(3);
+  document.getElementById('valCompressor').style.color = gc;
+  document.getElementById('valCompressor').style.textShadow = `0 0 15px ${gc}88`;
+  document.getElementById('subCompressor').textContent = `true: ${last.CompressorHealth ? last.CompressorHealth.toFixed(3) : '--'}`;
+
+  const gcomb = drawGauge('gaugeCombustor', last.est_eta_comb_corrected, COLORS.cyan);
+  document.getElementById('valCombustor').textContent = last.est_eta_comb_corrected.toFixed(3);
+  document.getElementById('valCombustor').style.color = gcomb;
+  document.getElementById('valCombustor').style.textShadow = `0 0 15px ${gcomb}88`;
+  document.getElementById('subCombustor').textContent = `true: ${last.CombustorHealth ? last.CombustorHealth.toFixed(3) : '--'}`;
+
+  const gt = drawGauge('gaugeTurbine', last.est_eta_t_corrected, COLORS.amber);
+  document.getElementById('valTurbine').textContent = last.est_eta_t_corrected.toFixed(3);
+  document.getElementById('valTurbine').style.color = gt;
+  document.getElementById('valTurbine').style.textShadow = `0 0 15px ${gt}88`;
+  document.getElementById('subTurbine').textContent = `true: ${last.TurbineHealth ? last.TurbineHealth.toFixed(3) : '--'}`;
+
+  // Setup blueprint background for the trend panel dynamically
+  const trendPanel = document.getElementById('trendChart').parentNode;
+  if(!trendPanel.querySelector('.blueprint-bg')) {
+      const blueprint = document.createElement('div');
+      blueprint.className = 'blueprint-bg';
+      trendPanel.appendChild(blueprint);
+  }
+
+  const labels = eng.map(r=>r.Cycle);
+  const estC = eng.map(r=>r.est_eta_c_corrected);
+  const stdC = eng.map(r=>Math.sqrt(Math.max(r.var_eta_c,0)));
+  const upperC = estC.map((v,i)=>v+stdC[i]);
+  const lowerC = estC.map((v,i)=>v-stdC[i]);
+
+  // Create smooth gradient for trend chart
+  const trendCtx = document.getElementById('trendChart').getContext('2d');
+  const gradientFill = trendCtx.createLinearGradient(0, 0, 0, 180);
+  gradientFill.addColorStop(0, 'rgba(0, 229, 255, 0.4)');
+  gradientFill.addColorStop(1, 'rgba(0, 229, 255, 0.0)');
+
+  destroyChart('trend');
+  charts.trend = new Chart(document.getElementById('trendChart'), {
+    type:'line',
+    data:{
+      labels,
+      datasets:[
+        {label:'Est. Compressor η (corrected) ±1σ (upper)', data:upperC, borderColor:'transparent', backgroundColor:'transparent', pointRadius:0, fill:'+1'},
+        {label:'Est. Compressor η (corrected) ±1σ (lower)', data:lowerC, borderColor:'transparent', backgroundColor:gradientFill, pointRadius:0, fill:false},
+        {label:'Est. Compressor η (corrected)', data:estC, borderColor:COLORS.cyan, backgroundColor:COLORS.cyan, pointRadius:0, borderWidth:3, tension:0.3},
+        {label:'True Compressor Health', data:eng.map(r=>r.CompressorHealth), borderColor:COLORS.amber, borderDash:[4,4], pointRadius:0, borderWidth:2, tension:0.3},
+      ]
+    },
+    options:{
+      responsive:true, interaction:{mode:'index', intersect:false},
+      plugins:{legend:{labels:{filter:(item)=>!item.text.includes('σ')}}},
+      scales:{ x:{grid:{color:'rgba(255,255,255,0.03)', drawBorder:false}}, y:{grid:{color:'rgba(255,255,255,0.03)', drawBorder:false}} }
+    }
+  });
+
+  destroyChart('thrust');
+  charts.thrust = new Chart(document.getElementById('thrustChart'), {
+    type:'line',
+    data:{ labels, datasets:[
+      {label:'Actual', data:eng.map(r=>r.true_Thrust), borderColor:COLORS.amber, pointRadius:0, borderWidth:3, tension:0.3},
+      {label:'Predicted', data:eng.map(r=>r.pred_Thrust_corrected), borderColor:COLORS.cyan, pointRadius:0, borderWidth:2, borderDash:[5,4], tension:0.3},
+    ]},
+    options:{responsive:true, scales:{x:{grid:{color:'rgba(255,255,255,0.03)', drawBorder:false}}, y:{grid:{color:'rgba(255,255,255,0.03)', drawBorder:false}, title:{display:true,text:'Thrust (N)',color:'#788B9E'}}}}
+  });
+
+  destroyChart('tsfc');
+  charts.tsfc = new Chart(document.getElementById('tsfcChart'), {
+    type:'line',
+    data:{ labels, datasets:[
+      {label:'Actual', data:eng.map(r=>r.true_TSFC), borderColor:COLORS.amber, pointRadius:0, borderWidth:3, tension:0.3},
+      {label:'Predicted', data:eng.map(r=>r.pred_TSFC_corrected), borderColor:COLORS.cyan, pointRadius:0, borderWidth:2, borderDash:[5,4], tension:0.3},
+    ]},
+    options:{responsive:true, scales:{x:{grid:{color:'rgba(255,255,255,0.03)', drawBorder:false}}, y:{grid:{color:'rgba(255,255,255,0.03)', drawBorder:false}, title:{display:true,text:'TSFC (g/N·s)',color:'#788B9E'}}}}
+  });
+
+  const hIdx = eng.map(r=>r.unified_health_index_corrected).filter(v=>v!==undefined && v!==null);
+  const cycles = eng.map(r=>r.Cycle);
+  let rulText = 'N/A';
+  let cyclesLeft = 'N/A';
+  if(hIdx.length>3){
+    const n = hIdx.length;
+    const sumX = cycles.reduce((a,b)=>a+b,0), sumY = hIdx.reduce((a,b)=>a+b,0);
+    const sumXY = cycles.reduce((a,c,i)=>a+c*hIdx[i],0);
+    const sumX2 = cycles.reduce((a,c)=>a+c*c,0);
+    const slope = (n*sumXY - sumX*sumY) / (n*sumX2 - sumX*sumX);
+    const intercept = (sumY - slope*sumX) / n;
+    if(slope < 0){
+      const thresholdCycle = (0.6 - intercept) / slope;
+      cyclesLeft = Math.max(0, Math.round(thresholdCycle - cycles[cycles.length-1]));
+      rulText = cyclesLeft + ' CYC';
+    } else {
+      rulText = 'STABLE';
+      cyclesLeft = '∞';
+    }
+  }
+  document.getElementById('rulTape').textContent = rulText;
+  document.getElementById('statCyclesLeft').textContent = cyclesLeft;
+  document.getElementById('statHealthIdx').textContent = (last.unified_health_index_corrected !== undefined ? last.unified_health_index_corrected.toFixed(3) : '--');
+
+  const avgStd = (stdC.reduce((a,b)=>a+b,0)/stdC.length);
+  document.getElementById('statConfidence').textContent = '±' + avgStd.toFixed(4);
+}
+</script>
+
+</body>
 </html>
+
