@@ -57,6 +57,44 @@ import pandas as pd
 from filterpy.kalman import UnscentedKalmanFilter, MerweScaledSigmaPoints
 from sklearn.metrics import mean_absolute_error, r2_score
 
+from scipy.fftpack import dct, idct
+from sklearn.linear_model import Lasso
+
+def compress_and_reconstruct_window(residual_window, M_samples, seed=42):
+    """
+    Compresses a (W, 6) residual matrix down to (M, 6) on-board,
+    and reconstructs it back to (W, 6) on the ground using DCT + L1 Lasso.
+    """
+    W, num_sensors = residual_window.shape
+    if M_samples >= W:
+        return residual_window.copy()
+
+    rng = np.random.default_rng(seed)
+    # 1. Fixed sensing matrix Phi (M x W) shared between Aircraft and Ground
+    Phi = rng.normal(0, 1.0 / np.sqrt(M_samples), size=(M_samples, W))
+    
+    # Orthonormal DCT-II basis matrix Psi (W x W)
+    Psi = dct(np.eye(W), norm='ortho', axis=0)
+    Theta_mat = Phi @ Psi  # Combined sensing-sparsity matrix (M x W)
+
+    reconstructed_window = np.zeros_like(residual_window)
+
+    for s in range(num_sensors):
+        r_vec = residual_window[:, s]
+        scale = np.std(r_vec) + 1e-6
+        r_norm = r_vec / scale
+
+        # --- ON-BOARD AIRCRAFT: Compress W samples -> M samples ---
+        y_cs = Phi @ r_norm
+
+        # --- ON-GROUND STATION: Reconstruct M samples -> W samples via Lasso ---
+        lasso = Lasso(alpha=0.01, max_iter=2000, tol=1e-3)
+        lasso.fit(Theta_mat, y_cs)
+        r_rec = (Psi @ lasso.coef_) * scale
+        reconstructed_window[:, s] = r_rec
+
+    return reconstructed_window
+    
 def run_triggered_ukf_for_engine(engine_df, Q_scale=0.001, gamma_threshold=0.0):
     """
     Runs the Physics-Informed UKF with an Uncertainty-Triggered Telemetry Gatekeeper.
