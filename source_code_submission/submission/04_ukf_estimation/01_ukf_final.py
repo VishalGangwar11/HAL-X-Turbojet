@@ -52,51 +52,70 @@ def hx(state, Pamb, Tamb, RPM, FuelFlow, Mach=0.4, Altitude=6000):
     T4 = T3 - eta_t * (T3 - T4_ideal)
 
     return np.array([P2, T2, P3, T3, P4, T4])
+import numpy as np
+import pandas as pd
+from filterpy.kalman import UnscentedKalmanFilter, MerweScaledSigmaPoints
+from sklearn.metrics import mean_absolute_error, r2_score
 
-
-def run_ukf_for_engine(engine_df, Q_scale=0.0005):
+def run_triggered_ukf_for_engine(engine_df, Q_scale=0.001, gamma_threshold=0.0):
+    """
+    Runs the Physics-Informed UKF with an Uncertainty-Triggered Telemetry Gatekeeper.
+    If gamma_threshold == 0.0, it transmits 100% of data (Baseline UKF).
+    As gamma_threshold increases, only high-uncertainty/anomalous cycles are transmitted.
+    """
     dim_x = 3
     dim_z = 6
-
     points = MerweScaledSigmaPoints(n=dim_x, alpha=0.5, beta=2.0, kappa=0)
     ukf = UnscentedKalmanFilter(dim_x=dim_x, dim_z=dim_z, dt=1.0, fx=fx, hx=hx, points=points)
-
+    
     ukf.x = np.array([0.9, 0.98, 0.9])
     ukf.P *= 0.01
     ukf.Q = np.eye(dim_x) * Q_scale
-    # Calibrated from actual residual variances (Day 3 tuning step)
     ukf.R = np.diag([857714883.88, 378.63, 790911236.82, 4529.15, 1681026493.53, 9676.53])
 
     estimates = []
+    transmitted_flags = []
+    gamma_scores = []
+
     for _, row in engine_df.iterrows():
         z = np.array([row['P2_Pa'], row['T2_K'], row['P3_Pa'], row['T3_K'], row['P4_Pa'], row['T4_K']])
+        hx_args = dict(Pamb=row['Pamb_Pa'], Tamb=row['Tamb_K'],
+                       RPM=row['RPM_rev_min'], FuelFlow=row['FuelFlow_kg_s'],
+                       Mach=row['Mach'], Altitude=row['Altitude_m'])
 
+        # Step 1: On-board & Ground Prior Prediction
         ukf.predict()
-        ukf.update(z, Pamb=row['Pamb_Pa'], Tamb=row['Tamb_K'],
-                   RPM=row['RPM_rev_min'], FuelFlow=row['FuelFlow_kg_s'],
-                   Mach=row['Mach'], Altitude=row['Altitude_m'])
+
+        # Step 2: Compute predicted measurement z_pred and innovation covariance S on-board
+        # Propagate current sigma points through thermodynamic model hx()
+        sigmas_h = np.array([hx(s, **hx_args) for s in ukf.sigmas_f])
+        z_pred = np.dot(ukf.Wm, sigmas_h)
+        
+        # Innovation (Residual) vector r_k
+        y_res = z - z_pred
+        
+        # Innovation Covariance Matrix S_k
+        S = ukf.R.copy()
+        for i in range(len(ukf.Wc)):
+            diff = (sigmas_h[i] - z_pred).reshape(-1, 1)
+            S += ukf.Wc[i] * (diff @ diff.T)
+
+        # Step 3: Uncertainty Trigger Score (Normalized Innovation Squared / Mahalanobis)
+        S_inv = np.linalg.inv(S)
+        gamma_k = float(y_res.T @ S_inv @ y_res)
+        gamma_scores.append(gamma_k)
+
+        # Step 4: Selective Telemetry Gatekeeper Decision
+        if gamma_k >= gamma_threshold:
+            # High novelty/uncertainty -> Transmit telemetry & update Ground Twin
+            ukf.update(z, **hx_args)
+            transmitted_flags.append(1)
+        else:
+            # Nominal flight -> Suppress telemetry; Ground Twin coasts on prediction
+            transmitted_flags.append(0)
 
         estimates.append(ukf.x.copy())
 
-    return np.array(estimates)
+    tx_rate = np.mean(transmitted_flags) * 100.0
+    return np.array(estimates), tx_rate, np.array(gamma_scores), np.array(transmitted_flags)
 
-
-if __name__ == "__main__":
-    eng1 = df[df['EngineID'] == 1].sort_values('Cycle').reset_index(drop=True)
-
-    # Try a few Q scales to see which tracks the true trend best
-    for Q_scale in [0.0001, 0.0005, 0.001, 0.005, 0.01]:
-        estimates = run_ukf_for_engine(eng1, Q_scale=Q_scale)
-        r2_c = r2_score(eng1['CompressorHealth'], estimates[:, 0])
-        r2_comb = r2_score(eng1['CombustorHealth'], estimates[:, 1])
-        r2_t = r2_score(eng1['TurbineHealth'], estimates[:, 2])
-        print(f"Q_scale={Q_scale}: R2_compressor={r2_c:.4f}, R2_combustor={r2_comb:.4f}, R2_turbine={r2_t:.4f}")
-
-    print("\n=== Detailed output for best-looking Q_scale (edit below to match) ===")
-    best_estimates = run_ukf_for_engine(eng1, Q_scale=0.001)
-    eng1['est_eta_c'] = best_estimates[:, 0]
-    eng1['est_eta_comb'] = best_estimates[:, 1]
-    eng1['est_eta_t'] = best_estimates[:, 2]
-    print(eng1[['Cycle', 'est_eta_c', 'CompressorHealth',
-                'est_eta_comb', 'CombustorHealth',
-                'est_eta_t', 'TurbineHealth']].to_string())
